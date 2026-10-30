@@ -3,7 +3,8 @@
 //  - 주기 웨이크업 타이머 (free-running, PERIOD 틱마다 tick_tgl 토글)
 //  - 전원 시퀀서: RUN → ISO → OFF(파워게이팅, HF 발진기 OFF) → ON → UNISO → WAITACK → RUN
 //  - 메인 도메인과는 토글 핸드셰이크(tick_tgl / ack_tgl) + 2FF 동기화로만 통신
-//  period / deep_en 은 메인 도메인 레지스터(quasi-static: 타이머 정지 중에만 변경)
+//  period / deep_en 은 메인 도메인 레지스터(quasi-static). AON 이 period_l/deep_l 로 보관하므로
+//  메인 전원이 꺼져도 타이머가 계속 동작한다.
 // ---------------------------------------------------------------------------
 module aon_ctrl(
     input         lfclk,
@@ -18,20 +19,27 @@ module aon_ctrl(
     output reg    iso_en,      // 출력 격리 셀 enable
     output reg    ret_hold     // 리텐션 플롭/SRAM 유지 모드
 );
-    reg [1:0] s_sync, a_sync;
+    // 메인 도메인에서 오는 신호는 iso_en 동안 갱신하지 않고 마지막 값을 유지한다.
+    // (메인 전원이 꺼진 동안 격리 클램프 값이 AON 판단에 섞이지 않도록 = 래치형 격리)
+    reg [1:0]  s_sync, a_sync;
+    reg [23:0] period_l;
+    reg        deep_l;
     always @(posedge lfclk or negedge rst_n)
-        if (!rst_n) begin s_sync <= 0; a_sync <= 0; end
-        else begin s_sync <= {s_sync[0], sleep_req}; a_sync <= {a_sync[0], ack_tgl}; end
+        if (!rst_n) begin s_sync <= 0; a_sync <= 0; period_l <= 0; deep_l <= 0; end
+        else if (!iso_en) begin
+            s_sync <= {s_sync[0], sleep_req}; a_sync <= {a_sync[0], ack_tgl};
+            period_l <= period; deep_l <= deep_en;   // quasi-static 설정값을 AON 쪽에 보관
+        end
     wire sleep_s = s_sync[1];
     wire ack_s   = a_sync[1];
     wire pending = (ack_s != tick_tgl);
 
     // ---- 주기 타이머 ----
     reg [23:0] cnt;
-    wire tick = (period != 0) && (cnt >= period - 1);
+    wire tick = (period_l != 0) && (cnt >= period_l - 1);
     always @(posedge lfclk or negedge rst_n)
         if (!rst_n) begin cnt <= 0; tick_tgl <= 1'b0; end
-        else if (period == 0) cnt <= 0;
+        else if (period_l == 0) cnt <= 0;
         else if (tick) begin cnt <= 0; tick_tgl <= ~tick_tgl; end
         else cnt <= cnt + 1;
 
@@ -42,7 +50,7 @@ module aon_ctrl(
         if (!rst_n) begin
             ps <= P_RUN; hfosc_en <= 1'b1; pwr_on <= 1'b1; iso_en <= 1'b0; ret_hold <= 1'b0;
         end else case (ps)
-            P_RUN:   if (deep_en && sleep_s && !pending && !tick) begin
+            P_RUN:   if (deep_l && sleep_s && !pending && !tick) begin
                          iso_en <= 1'b1; ret_hold <= 1'b1; ps <= P_ISO;
                      end
             P_ISO:   begin hfosc_en <= 1'b0; pwr_on <= 1'b0; ps <= P_OFF; end

@@ -1,0 +1,32 @@
+# ulp_soc.upf — IEEE 1801 시작 템플릿 (UPF 2.x). 셀 이름/전압은 라이브러리에 맞게 수정.
+set_design_top ulp_soc
+create_power_domain PD_TOP                             ;# AON (top 포함, 상시 전원)
+create_power_domain PD_MAIN -elements {u_core u_acc u_ram u_icg_c u_icg_a}
+
+create_supply_port VDD
+create_supply_port VSS
+create_supply_net  VDD      -domain PD_TOP
+create_supply_net  VSS      -domain PD_TOP
+create_supply_net  VSS      -domain PD_MAIN -reuse
+create_supply_net  VDD_MAIN -domain PD_MAIN
+connect_supply_net VDD -ports VDD
+connect_supply_net VSS -ports VSS
+set_domain_supply_net PD_TOP  -primary_power_net VDD      -primary_ground_net VSS
+set_domain_supply_net PD_MAIN -primary_power_net VDD_MAIN -primary_ground_net VSS
+
+create_power_switch SW_MAIN -domain PD_MAIN \
+    -input_supply_port  {vin  VDD} -output_supply_port {vout VDD_MAIN} \
+    -control_port {ctrl u_aon/pwr_on} -on_state {on vin {ctrl}}
+
+# PD_MAIN → PD_TOP 출력 격리 (AON 내부가 iso 동안 값을 유지하므로 클램프 값은 안전측 0)
+set_isolation ISO_MAIN -domain PD_MAIN -applies_to outputs \
+    -clamp_value 0 -isolation_power_net VDD -isolation_ground_net VSS
+set_isolation_control ISO_MAIN -domain PD_MAIN -isolation_signal u_aon/iso_en -isolation_sense high -location parent
+
+# 리텐션: 코어 PC/레지스터파일/IR, 가속기 설정, 시스템 레지스터
+set_retention RET_MAIN -domain PD_MAIN -retention_power_net VDD -retention_ground_net VSS
+set_retention_control RET_MAIN -domain PD_MAIN -save_signal {u_aon/ret_hold high} -restore_signal {u_aon/ret_hold low}
+
+add_power_state PD_TOP  -state ON  {-supply_expr {VDD == {FULL_ON 0.9}}}
+add_power_state PD_MAIN -state ON  {-supply_expr {VDD_MAIN == {FULL_ON 0.9}}}
+add_power_state PD_MAIN -state OFF {-supply_expr {VDD_MAIN == OFF}}

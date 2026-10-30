@@ -61,4 +61,15 @@ module tb;
         $finish;
     end
     initial begin #50_000_000; $display("TIMEOUT"); $finish; end
+
+    // ---- 전력 분석용 파형 (Synopsys 흐름: +define+DUMP_FSDB, VCS -kdb -lca) ----
+    // PrimeTime PX 의 시간 구간 분석에 쓰는 표식: pw_active = 메인 도메인 전원 ON
+`ifdef DUMP_FSDB
+    initial begin
+        $fsdbDumpfile("ulp_soc.fsdb");
+        $fsdbDumpvars(0, tb.dut);
+    end
+`endif
+    always @(posedge pwr_on)  $display("[PWR] %0d ns main ON",  $time);
+    always @(negedge pwr_on)  $display("[PWR] %0d ns main OFF", $time);
 endmodule

@@ -1,0 +1,11 @@
+logs/
+reports/*.rpt
+out/
+*.fsdb
+sim.vvp
+ucli.key
+csrc/
+simv*
+*.daidir/
+verdiLog/
+novas*
